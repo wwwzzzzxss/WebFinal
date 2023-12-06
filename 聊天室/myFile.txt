@@ -1,0 +1,3 @@
+
+python client.py
+python stable1.py
