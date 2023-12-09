@@ -58,6 +58,7 @@ buf_size=1024
 IP = '127.0.0.1'
 PORT = 6666
 client = connect_to_server(IP,PORT)
+down_count = False
 
 msg = client.recv(buf_size) #接收server端反馈的信息编号
 client.setblocking(False)
@@ -75,6 +76,7 @@ if msg!='end':
         try:
             msg = client.recv(buf_size)
             init_content = json.loads(msg.decode('utf-8'))
+     
             hand_cards = init_content[:12] 
             hand_graph = [suits[(value - 1) // 13] + str((value - 1) % 13 + 1) 
                         for value in hand_cards] 
@@ -154,24 +156,25 @@ button_text = "Not your turn"
 hand_card_rects = []
 animation_shown_cards = []
 reset_count = True
-start_time = time.time()
+
+
 ######################################################GUI
 while running:
     screen.blit(background, (0, 0))
     screen.blit(back_of_card, back_of_card_pos)
     pygame.draw.rect(screen, button_color, (screen_width / 2, screen_height / 2, 
                                             100, 50))
-    current_time = time.time()
-    elapsed_time = current_time - start_time
+
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
+     
             running = False
         elif (event.type == pygame.MOUSEBUTTONDOWN):
             if (text_rect.collidepoint(event.pos) and not button_lock
-                and hand_lock  and table_lock and not button_send_lock):        
+                and hand_lock  and table_lock and not button_send_lock):
                 #4.98秒內出牌
-                if num == bigmsg_received['cur'] and elapsed_time < 4.98:  
+                if num == bigmsg_received['cur']:  
                     bigmsg1['beat'] = 'L'              
                     if first:
                         bigmsg1['hand'] = str(hand_select)
@@ -183,6 +186,8 @@ while running:
                     button_text = "Cards played"
                     button_send_lock = True
                     hand_dlock = True
+                    player_timeout = False
+
                 time.sleep(0.001)
             else:
                 for i, card_rect in enumerate(hand_card_rects):
@@ -209,33 +214,20 @@ while running:
                     elif card_rect.collidepoint(event.pos) and table_lock == True:
                         table_lock = False
                         table_select = -1
-                        break     
-    if elapsed_time >= 4.98:
-        
-        table_select = 0
-        hand_lock = True
-        table_lock = True
-        if first:
-            hand_select = 0
-            bigmsg1['hand'] = str(hand_select)
-            first = 0 
-        bigmsg1['table'] = str(table_select)
-        msg_to_send = json.dumps(bigmsg1).encode('utf-8')
-        client.send(msg_to_send)         
-        button_color = RED
-        button_text = "Cards played"
-        button_send_lock = True
-        hand_dlock = True
-    time.sleep(0.001)
+                        break   
 
 #############################################pygame
     try:
         msg = client.recv(buf_size)           # 接收server端发送的当前client编号  
         bigmsg_received = json.loads(msg.decode('utf-8'))
-        start_time = time.time()
-        print("一次")
         if bigmsg_received['cur'] == "-1":
             break
+        elif bigmsg_received['cur'] == "-2":
+            print("有名玩家中斷")
+            pygame.quit()
+            sys.exit()
+            break
+        
         table_int = int(bigmsg_received['table'])
         if table_int < 0:
             try:
@@ -249,7 +241,6 @@ while running:
         show_t_pos(table_cards)
         table_select = -1
         table_lock = False
-
 
         if num != bigmsg_received['cur'] and second != 0: 
             button_color = BLUE
@@ -270,12 +261,13 @@ while running:
                     hand_graph.append(convert_graph(number))
             hand_select = -1
             hand_lock = False
-            #show_pos(pos)
-            #show_pos(hand_cards)
             second = 0
         elif num == bigmsg_received['cur']:
-                
-
+        
+            player_timeout = True
+            player_wait = False
+            
+            start_time = time.time()
             bigmsg1['beat'] = 'D'
             button_send_lock = False
             button_lock = False
@@ -306,6 +298,37 @@ while running:
                 show_pos(hand_cards)
     except BlockingIOError:
         pass
+    except json.JSONDecodeError as e:
+        # 如果解析錯誤，進入 except 塊
+        print(f"JSON 解析錯誤：{e}") 
+        print(bigmsg_received)
+    except ConnectionError:
+        pass
+    """except json.JSONDecodeError:
+        print("伺服器斷線遊戲中止")
+        pygame.quit()
+        sys.exit()"""
+    if bigmsg_received['cur'] == num:
+        current_time = time.time()
+        elapsed_time = current_time - start_time
+        if elapsed_time >= 0.98 and player_timeout and not player_wait:
+            print("超時!!!!!!!!")
+            table_select = 0
+            hand_lock = True
+            table_lock = True
+            if first:
+                hand_select = 0
+                bigmsg1['hand'] = str(hand_select)
+                first = 0 
+            bigmsg1['table'] = str(table_select)
+            msg_to_send = json.dumps(bigmsg1).encode('utf-8')
+            client.send(msg_to_send)         
+            button_color = RED
+            button_text = "Cards played"
+            button_send_lock = True
+            hand_dlock = True
+            player_wait = True
+            time.sleep(0.001)
 
     mouse_h_x, mouse_h_y = pygame.mouse.get_pos()  
 
@@ -380,3 +403,8 @@ elif number > 0 :
     hand_cards.append(number)
     hand_graph.append(convert_graph(number))
 hand_select = -1"""
+"""
+當client cur接收到-2 顯示出已有玩家斷線，遊戲中止
+
+-2->show have player disconnect -> while 1-> 3sec -> sys.quit() pygame quit(
+"""

@@ -4,6 +4,7 @@ import json
 import time
 import  servergame as sm 
 import ServerRoomMd as SR
+
 players = []
 revealed_cards = []
 empty_pos = []
@@ -11,7 +12,8 @@ all_msg = {
     'poker' : '',
     'table' : '0',
     'hand' : '0',
-    'cur' : ''
+    'cur' : '',
+    'emg' : ''
 }
 
 score = [0,0,0,0] 
@@ -40,7 +42,7 @@ PORT = 6666
 
 server = SR.set_server(IP,PORT)
 alt = SR.room(server)
-
+server.settimeout(10)
 
 buf_size = 1024             #設定預設buf文字區大小
 connect_num= 0
@@ -65,26 +67,51 @@ try:
     cur_p = 0
     all_msg['cur'] = str(cur_p + 1)
     msg_to_send = json.dumps(all_msg).encode('utf-8')
+    time.sleep(0.001)
     for j in alt:
         j.send(msg_to_send)
-    time.sleep(0.01)
+    time.sleep(0.005)
 
     #start_time = time.time()
     while poker[0] != 0:
         #print("p1",players[cur_p])
         #print("poker",poker)
         try:
+            if cur_p == len(alt):
+                for send_close in alt:  
+                    send_close.send(msg_to_send)
+                time.sleep(3)
+                break
             msg0 = alt[cur_p].recv(buf_size)
-            bigmsg_received = json.loads(msg0.decode('utf-8'))  
+            bigmsg_received = json.loads(msg0.decode('utf-8'))      
         except BlockingIOError:
-            """current_time = time.time()
-            elapsed_time = current_time - start_time
-            if elapsed_time >= 5:
-                bigmsg_received['hand'] = '0'
-            else:"""
-
             continue
-
+        except ConnectionAbortedError: #藍方斷線
+            del alt[cur_p]       
+            all_msg['cur'] = "-2"
+            msg_to_send = json.dumps(all_msg).encode('utf-8') #廣播通知遊戲結束
+            time.sleep(0.5)
+            for send_close in alt:  
+                send_close.send(msg_to_send)
+            strat_time = time.time()
+            while 1:
+                current_time = time.time()
+                if current_time - strat_time > 8:
+                    break
+            break   
+        except json.JSONDecodeError as e: #綠方斷線 #綠方先斷，藍方後斷
+            del alt[cur_p]       
+            all_msg['cur'] = "-2"
+            msg_to_send = json.dumps(all_msg).encode('utf-8') 
+            time.sleep(0.5)
+            for send_close in alt:  #廣播通知遊戲結束
+                send_close.send(msg_to_send)
+            strat_time = time.time()
+            while 1:
+                current_time = time.time()
+                if current_time - strat_time > 8:
+                    break
+            break
         try:
             number1 = bigmsg_received['hand']
             number1 = int(number1)
@@ -108,8 +135,7 @@ try:
                 print("無效張，自動選擇第1張")
                 card_key = revealed_cards[1]
             else:
-                print("桌上沒牌，必定失敗")
-                number2 = 0
+                number2 = 0 #桌上沒牌，必定失敗
                 card_key = revealed_cards[0]
 
         all_msg['hand'] = ''
@@ -136,20 +162,55 @@ try:
         if (not players[cur_p]) and poker[0] != 0: 
             players[cur_p].append(poker[0])
             all_msg['hand'] = all_msg['hand'] + '+' + str(poker[0]) #玩家沒牌，自動補牌
-            poker.pop(0)          
+            poker.pop(0)         
         msg_to_send = json.dumps(all_msg).encode('utf-8') #廣播
         for j in  alt:
-            j.send(msg_to_send)
-        print("到尺一遊")
+            j.send(msg_to_send)                        
         sucess = True
         while(sucess and poker[0] != 0):                            
             if sucess:
                 all_msg['hand'] = ''
             try:
+                if cur_p == len(alt):
+                    for send_close in alt:  
+                        send_close.send(msg_to_send)
+                    time.sleep(3)
+                    break
                 msg0 = alt[cur_p].recv(buf_size)
                 bigmsg_received = json.loads(msg0.decode('utf-8'))
             except BlockingIOError:
                 continue
+            except ConnectionAbortedError: #藍方斷線
+                del alt[cur_p]       
+                all_msg['cur'] = "-2"
+                msg_to_send = json.dumps(all_msg).encode('utf-8') #廣播
+                time.sleep(0.5)
+                for send_close in alt:  
+                    send_close.send(msg_to_send)
+                strat_time = time.time()
+                while 1:             
+                    current_time = time.time()
+                    if current_time - strat_time > 8:
+                        print("191")
+                        break
+                break   
+            except json.JSONDecodeError as e: #綠方斷線
+                del alt[cur_p]       
+                all_msg['cur'] = "-2"
+                msg_to_send = json.dumps(all_msg).encode('utf-8') #廣播
+                time.sleep(0.5)
+                for j in alt:
+                    try:
+                        j.send(msg_to_send)
+                    except ConnectionAbortedError: #兩個玩家都中斷了
+                        print("兩名玩家都中斷了1")
+                       # break
+                strat_time = time.time()
+                while 1:
+                    current_time = time.time()
+                    if current_time - strat_time > 8:
+                        break
+                break
             lenth = len(players[cur_p]) - 1 
             player_card = players[cur_p][lenth]
             try:
@@ -183,10 +244,11 @@ try:
                 revealed_cards.append(player_card)     
                 all_msg['hand'] = '-' + str(player_card) 
                 players[cur_p].pop(lenth)
-                sucess = False   
+                sucess = False
                 cur_p += 1 #下個玩家
-                if(cur_p == 2):
+                if(cur_p == len(alt)):
                     cur_p = 0
+                    
                 all_msg['cur'] = str(cur_p + 1)
 
             if sucess:
@@ -195,24 +257,30 @@ try:
                     all_msg['hand'] = all_msg['hand'] + '+' + str(poker[0])
                     poker.pop(0)  
             else:
-                if not players[(cur_p + 1) % 2] and poker[0] != 0:
-                    players[(cur_p + 1) % 2].append(poker[0])
+                if not players[(cur_p + 1) % len(alt)] and poker[0] != 0:
+                    players[(cur_p + 1) % len(alt)].append(poker[0])
                     all_msg['hand'] = all_msg['hand'] + '+' + str(poker[0])
                     poker.pop(0) 
-            msg_to_send = json.dumps(all_msg).encode('utf-8')  
-            try:
-                for j in alt:
+            msg_to_send = json.dumps(all_msg).encode('utf-8')     
+            for j in alt:
+                try:
                     j.send(msg_to_send)
-            except ConnectionAbortedError:
-                pass
-
+                except ConnectionAbortedError: #兩個玩家都中斷了
+                    break
     print("遊戲結束")
     print("byebye")
+    time.sleep(0.1)
     all_msg['cur'] = '-1'
     msg_to_send = json.dumps(all_msg).encode('utf-8')
+    print(len(alt))
+
     for j in  alt:
-        j.send(msg_to_send)
-    time.sleep(0.01)
+        try:
+            j.send(msg_to_send)
+        except ConnectionAbortedError: #兩個玩家都中斷了 
+            print("connection")
+            break
+    time.sleep(3)
 except socket.timeout:
     time.sleep(3)
     server.close() #关闭监听主socket，服务端程序结束
