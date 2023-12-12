@@ -5,16 +5,11 @@ import time
 import re
 import pygame
 import os
-
+import Talkroom.ClientRMD as RM
 #import login_module
-#import talkroom
+
 ##########################################################
 #牌的邏輯
-"""
-pos = []
-for i in range(1,14):
-    pos.append(i)"""
-
 def show_pos(hand_cards):
     for i in hand_cards:
         print("%2s" %i,end=" ")
@@ -27,14 +22,6 @@ def convert_graph(card):
     value = suits[(card - 1) // 13] + str((card - 1) % 13 + 1)
     return value
 
-def connect_to_server(server_ip, port):
-    server_ip = socket.gethostbyname(server_ip)
-    cSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    print('Connecting to %s port %s' % (server_ip, port))
-    cSocket.connect((server_ip, port))
-    return cSocket
-
-
 
 first = 1   #每回合的第一次出牌
 hand_cards = []
@@ -42,11 +29,9 @@ second = 0
 suits = ['D', 'H', 'S', 'C']
 
 #################################################
-"""
-if not login_module.start_login_interface():
-    sys.exit()
-if not talkroom.main():
-    sys.exit()"""
+
+#if not login_module.start_login_interface():
+    #sys.exit()
 
 #通訊部分
 bigmsg1 = {
@@ -54,46 +39,43 @@ bigmsg1 = {
     'hand' : '',
     'beat' : ''
 }
-buf_size=1024
+
+buff_size=1024
 IP = '127.0.0.1'
 PORT = 6666
-client = connect_to_server(IP,PORT)
-down_count = False
-
-msg = client.recv(buf_size) #接收server端反馈的信息编号
-client.setblocking(False)
-if(msg!='end'):
-    print("已连接到ip为{}的server端，本机编号为{}".format(IP,msg.decode('utf-8')))  # 连接成功时将server端ip地址反馈到client端
-    #定义client端编号为num  
-    num = msg.decode('utf-8')
-elif(msg=='end'):
-    print("server端连接数量已达上限！当前连接断开！")
-
+client = RM.set_client(IP,PORT)
+time.sleep(0.01)
+try:
+    id = client.recv(buff_size).decode('utf-8')
+    if id == 'close':
+        print("伺服器拒絕服務")
+except BlockingIOError:
+    pass
+if not RM.main(client):
+    print("false")
+    sys.exit()
+else:
+    print("true")
 ##########################################################
-#進入遊戲
-if msg!='end':
-    while True:
-        try:
-            msg = client.recv(buf_size)
-            init_content = json.loads(msg.decode('utf-8'))
-     
-            hand_cards = init_content[:12] 
-            hand_graph = [suits[(value - 1) // 13] + str((value - 1) % 13 + 1) 
-                        for value in hand_cards] 
-            table_cards = init_content[12:16] 
-            table_graph = [suits[(value - 1) // 13] + str((value - 1) % 13 + 1) 
-                        for value in table_cards]
-            #show_pos(pos)
-            #show_pos(hand_cards)
-            #show_t_pos(table_cards)
-            time.sleep(0.01)
-            break    
-        except BlockingIOError:
-            pass
 
+#進入遊戲
+while True:
+    try:
+        msg = client.recv(buff_size)
+        init_content = json.loads(msg.decode('utf-8'))
+        hand_cards = init_content[:12] 
+        hand_graph = [suits[(value - 1) // 13] + str((value - 1) % 13 + 1) 
+                    for value in hand_cards] 
+        table_cards = init_content[12:16] 
+        table_graph = [suits[(value - 1) // 13] + str((value - 1) % 13 + 1) 
+                    for value in table_cards]
+        num = str(init_content[16:][0] ) #重點 [0]才能轉成字符串
+        time.sleep(0.005)
+        break    
+    except BlockingIOError:
+        pass
 ##########################################################GUI
 #GUI初始化
-
 pygame.init()
 # 設置遊戲視窗尺寸
 screen_width = 1600
@@ -118,6 +100,9 @@ running = True
 screen.blit(background, (0, 0))
 screen.blit(back_of_card, back_of_card_pos)
 
+
+
+
 #card graph
 clock = pygame.time.Clock()
 card_width = 180
@@ -134,14 +119,6 @@ hand_dlock = False
 table_select = -1
 table_lock = False
 
-"""有關table
-table_lock
-table_card_rects
-table_cards
-table_graph
-table_int
-table_select"""
-
 # 按鈕
 GREEN = (0, 255, 0)
 RED = (255, 0, 0)
@@ -157,18 +134,18 @@ hand_card_rects = []
 animation_shown_cards = []
 reset_count = True
 
-
+text_clicked = font.render(button_text, True, color_text)
+text_rect = text_clicked.get_rect(center=(screen_width/2, 
+                                            screen_height/2))
+table_card_rects = []
 ######################################################GUI
 while running:
     screen.blit(background, (0, 0))
     screen.blit(back_of_card, back_of_card_pos)
     pygame.draw.rect(screen, button_color, (screen_width / 2, screen_height / 2, 
                                             100, 50))
-
-
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-     
             running = False
         elif (event.type == pygame.MOUSEBUTTONDOWN):
             if (text_rect.collidepoint(event.pos) and not button_lock
@@ -179,9 +156,11 @@ while running:
                     if first:
                         bigmsg1['hand'] = str(hand_select)
                         first = 0 
+                    print("手: ",hand_cards[hand_select])
                     bigmsg1['table'] = str(table_select)
                     msg_to_send = json.dumps(bigmsg1).encode('utf-8')
-                    client.send(msg_to_send)         
+                    client.send(msg_to_send)  
+                    print("桌: ",table_cards[table_select])       
                     button_color = RED
                     button_text = "Cards played"
                     button_send_lock = True
@@ -218,16 +197,20 @@ while running:
 
 #############################################pygame
     try:
-        msg = client.recv(buf_size)           # 接收server端发送的当前client编号  
+        msg = client.recv(buff_size)           # 接收server端发送的当前client编号  
         bigmsg_received = json.loads(msg.decode('utf-8'))
+        time.sleep(0.01)
         if bigmsg_received['cur'] == "-1":
-            break
+            score = bigmsg_received['hand']
+            print("你的得分是: ",score) 
+            print("遊戲結束")
+            pygame.quit()
+            sys.exit()
         elif bigmsg_received['cur'] == "-2":
             print("有名玩家中斷")
             pygame.quit()
             sys.exit()
             break
-        
         table_int = int(bigmsg_received['table'])
         if table_int < 0:
             try:
@@ -238,7 +221,7 @@ while running:
         elif table_int> 0:
             table_cards.append(table_int)
             table_graph.append(convert_graph(table_int))
-        show_t_pos(table_cards)
+        #show_t_pos(table_cards)
         table_select = -1
         table_lock = False
 
@@ -246,7 +229,7 @@ while running:
             button_color = BLUE
             button_text = "Not your turn"
             hand_dlock = False
-            
+              
             numbers = list(map(int,re.findall(r'[+-]?\d+',bigmsg_received['hand'] )))
             for number in numbers:
                 if number < 0:
@@ -295,7 +278,7 @@ while running:
                 else:
                     hand_select = len(hand_cards) - 1
                 
-                show_pos(hand_cards)
+                #show_pos(hand_cards)
     except BlockingIOError:
         pass
     except json.JSONDecodeError as e:
@@ -304,15 +287,11 @@ while running:
         print(bigmsg_received)
     except ConnectionError:
         pass
-    """except json.JSONDecodeError:
-        print("伺服器斷線遊戲中止")
-        pygame.quit()
-        sys.exit()"""
     if bigmsg_received['cur'] == num:
         current_time = time.time()
         elapsed_time = current_time - start_time
-        if elapsed_time >= 0.98 and player_timeout and not player_wait:
-            print("超時!!!!!!!!")
+        if elapsed_time >= 4.98 and player_timeout and not player_wait:
+            print("超時 !!")
             table_select = 0
             hand_lock = True
             table_lock = True
@@ -320,10 +299,12 @@ while running:
                 hand_select = 0
                 bigmsg1['hand'] = str(hand_select)
                 first = 0 
+            print("手: ",hand_cards[hand_select])
             bigmsg1['table'] = str(table_select)
+            print("桌: ",table_cards[table_select])
             msg_to_send = json.dumps(bigmsg1).encode('utf-8')
             client.send(msg_to_send)         
-            button_color = RED
+            button_color = GREEN
             button_text = "Cards played"
             button_send_lock = True
             hand_dlock = True
@@ -331,7 +312,6 @@ while running:
             time.sleep(0.001)
 
     mouse_h_x, mouse_h_y = pygame.mouse.get_pos()  
-
 
     active_card_index = None  
     for i, card_name in enumerate(hand_graph):           
@@ -384,27 +364,3 @@ print("连接已断开！")
 # 退出 Pygame
 pygame.quit()
 sys.exit()
-
-
-"""
-if (num != bigmsg_received['cur'] and second != 0
-or num == bigmsg_received['cur']):
-numbers = list(map(int,re.findall(r'[+-]?\d+',bigmsg_received['hand'] )))
-for number in numbers:
-if number < 0:
-    try:
-        hand_cards.remove(-number)
-        hand_graph.remove(convert_graph(-number))
-    except ValueError:
-        print('error num=',number)
-        print("h value error")
-elif number > 0 :
-    print("桌上空的",number)
-    hand_cards.append(number)
-    hand_graph.append(convert_graph(number))
-hand_select = -1"""
-"""
-當client cur接收到-2 顯示出已有玩家斷線，遊戲中止
-
--2->show have player disconnect -> while 1-> 3sec -> sys.quit() pygame quit(
-"""
