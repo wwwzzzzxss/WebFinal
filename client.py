@@ -99,7 +99,7 @@ back_of_card_pos = (screen_width - back_of_card.get_width() - 50, screen_height 
 running = True
 screen.blit(background, (0, 0))
 screen.blit(back_of_card, back_of_card_pos)
-
+FPS = 30
 
 
 
@@ -194,7 +194,7 @@ while running:
                         table_lock = False
                         table_select = -1
                         break   
-
+    clock.tick(FPS)
 #############################################pygame
     try:
         msg = client.recv(buff_size)           # 接收server端发送的当前client编号  
@@ -286,6 +286,7 @@ while running:
         print(f"JSON 解析錯誤：{e}") 
         print(bigmsg_received)
     except ConnectionError:
+        time.sleep(0.001)
         pass
     if bigmsg_received['cur'] == num:
         current_time = time.time()
